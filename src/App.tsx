@@ -177,7 +177,7 @@ export default function App() {
             background: 'var(--bg-surface)',
             borderBottom: '1px solid var(--border)',
             minHeight: 38,
-            paddingTop: process.platform === 'darwin' ? 20 : 0
+            paddingTop: navigator.userAgent.includes('Mac OS X') ? 20 : 0
           }}
         >
           {tabs.length === 0 && (
