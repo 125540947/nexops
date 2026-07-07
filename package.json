@@ -2,6 +2,7 @@
   "name": "nexops",
   "version": "0.4.0",
   "description": "Modern SSH workspace for developers and teams",
+  "author": "Wahyu Simbolon",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -50,11 +51,14 @@
   "build": {
     "appId": "com.nexops.app",
     "productName": "NexOps",
+    "npmRebuild": false,
     "directories": {
       "output": "dist"
     },
     "files": [
-      "out/**/*"
+      "out/**/*",
+      "node_modules/**/*",
+      "!node_modules/cpu-features/**/*"
     ],
     "extraResources": [
       {

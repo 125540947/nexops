@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useAppStore, type Tab } from './stores/app'
+import { useI18n } from './i18n'
+import { Titlebar } from './components/Titlebar/Titlebar'
 import { Sidebar } from './components/Sidebar/Sidebar'
 import { TerminalPane } from './components/Terminal/TerminalPane'
 import { SftpPanel } from './components/FileManager/SftpPanel'
@@ -19,6 +21,7 @@ function genSessionId() {
 }
 
 export default function App() {
+  const { t } = useI18n()
   const {
     hosts, groups, dbConnections, tabs, activeTabId,
     setHosts, setGroups, setDbConnections, addHost, addGroup, addDbConnection,
@@ -31,7 +34,6 @@ export default function App() {
   const [showAddDb, setShowAddDb] = useState(false)
   const [resizing, setResizing] = useState(false)
 
-  // Load initial data
   useEffect(() => {
     async function load() {
       const [hostsRes, groupsRes, dbRes] = await Promise.all([
@@ -58,35 +60,21 @@ export default function App() {
         sessionId,
         status: 'connecting'
       }
-
       openTab(tab)
-
-      // Connect SSH
       const result = await window.nexops.ssh.connect(sessionId, host)
       if (!result.ok) {
         updateTabStatus(sessionId, 'error', result.error)
         return
       }
-
       updateTabStatus(sessionId, 'connected')
-
-      // Listen for close
-      window.nexops.ssh.onClose(sessionId, () => {
-        updateTabStatus(sessionId, 'disconnected')
-      })
-
-      window.nexops.ssh.onError(sessionId, (msg) => {
-        updateTabStatus(sessionId, 'error', msg)
-      })
+      window.nexops.ssh.onClose(sessionId, () => updateTabStatus(sessionId, 'disconnected'))
+      window.nexops.ssh.onError(sessionId, (msg) => updateTabStatus(sessionId, 'error', msg))
     },
     [openTab, updateTabStatus]
   )
 
   async function handleCloseTab(tabId: string) {
-    if (tabId === BATCH_TAB_ID) {
-      closeTab(tabId)
-      return
-    }
+    if (tabId === BATCH_TAB_ID) { closeTab(tabId); return }
     const tab = tabs.find((t) => t.id === tabId)
     if (tab) await window.nexops.ssh.disconnect(tab.sessionId)
     closeTab(tabId)
@@ -96,230 +84,148 @@ export default function App() {
     const tabId = `db-${connId}`
     const conn = dbConnections.find((d) => d.id === connId)
     if (!conn) return
-    openTab({
-      id: tabId,
-      hostId: -1,
-      hostName: conn.name,
-      hostLabel: conn.type,
-      type: 'db',
-      sessionId: tabId,
-      status: 'connected'
-    })
+    openTab({ id: tabId, hostId: -1, hostName: conn.name, hostLabel: conn.type, type: 'db', sessionId: tabId, status: 'connected' })
   }
 
   function openBatchTab() {
-    const exists = tabs.find((t) => t.id === BATCH_TAB_ID)
-    if (exists) {
-      setActiveTab(BATCH_TAB_ID)
-      return
-    }
-    openTab({
-      id: BATCH_TAB_ID,
-      hostId: -1,
-      hostName: 'Batch Ops',
-      hostLabel: 'Multi-host execution',
-      type: 'batch',
-      sessionId: BATCH_TAB_ID,
-      status: 'connected'
-    })
+    if (tabs.find((t) => t.id === BATCH_TAB_ID)) { setActiveTab(BATCH_TAB_ID); return }
+    openTab({ id: BATCH_TAB_ID, hostId: -1, hostName: 'Batch Ops', hostLabel: 'Multi-host execution', type: 'batch', sessionId: BATCH_TAB_ID, status: 'connected' })
   }
 
-  // Sidebar resize
   function startResize() {
     setResizing(true)
-    const onMove = (e: MouseEvent) => {
-      const newWidth = Math.max(160, Math.min(400, e.clientX))
-      setSidebarWidth(newWidth)
-    }
-    const onUp = () => {
-      setResizing(false)
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
+    const onMove = (e: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(400, e.clientX)))
+    const onUp = () => { setResizing(false); window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
   }
 
-  const activeTab = tabs.find((t) => t.id === activeTabId)
-
   return (
-    <div className="flex h-full overflow-hidden" style={{ background: 'var(--bg-base)' }}>
-      {/* Sidebar */}
-      <div
-        className="flex-shrink-0 flex flex-col overflow-hidden"
-        style={{ width: sidebarWidth, borderRight: '1px solid var(--border)' }}
-      >
-        <Sidebar
-          onConnect={openConnection}
-          onAddHost={() => setShowAddHost(true)}
-          onOpenBatch={openBatchTab}
-          onOpenDb={() => setShowAddDb(true)}
-        />
-      </div>
-
-      {/* Resize Handle */}
-      <div
-        className="w-1 flex-shrink-0 cursor-col-resize hover:opacity-100 transition-opacity"
-        style={{ background: resizing ? 'var(--accent)' : 'transparent' }}
-        onMouseDown={startResize}
-        onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--border)')}
-        onMouseLeave={(e) => {
-          if (!resizing) e.currentTarget.style.background = 'transparent'
-        }}
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'var(--bg-base)' }}>
+      {/* Custom Titlebar with menu + window controls */}
+      <Titlebar
+        onAddHost={() => setShowAddHost(true)}
+        onAddDb={() => setShowAddDb(true)}
+        onToggleAi={toggleAiPanel}
+        aiOpen={aiPanelOpen}
       />
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Custom Titlebar + Tabs */}
+      {/* Body */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
         <div
-          className="flex items-end flex-shrink-0 titlebar-drag"
-          style={{
-            background: 'var(--bg-surface)',
-            borderBottom: '1px solid var(--border)',
-            minHeight: 38,
-            paddingTop: navigator.userAgent.includes('Mac OS X') ? 20 : 0
-          }}
+          className="flex-shrink-0 flex flex-col overflow-hidden"
+          style={{ width: sidebarWidth, borderRight: '1px solid var(--border)' }}
         >
-          {tabs.length === 0 && (
-            <div
-              className="flex-1 flex items-center justify-center pb-2 text-xs"
-              style={{ color: 'var(--text-muted)' }}
-            >
-              Double-click a host or right-click to connect
-            </div>
-          )}
-
-          <div className="flex items-end flex-1 overflow-x-auto titlebar-no-drag">
-            {tabs.map((tab) => (
-              <div
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer flex-shrink-0 text-xs border-r transition-colors"
-                style={{
-                  background: activeTabId === tab.id ? 'var(--bg-base)' : 'transparent',
-                  borderColor: 'var(--border)',
-                  color: activeTabId === tab.id ? 'var(--text-primary)' : 'var(--text-secondary)',
-                  borderTop: activeTabId === tab.id
-                    ? '2px solid var(--accent)'
-                    : '2px solid transparent',
-                  maxWidth: 200
-                }}
-              >
-                <span className="text-xs">
-                  {tab.type === 'sftp' ? '≡' : tab.type === 'batch' ? '⚡' : tab.type === 'db' ? '🗄' : '⌨'}
-                </span>
-                <StatusDot status={tab.status} />
-                <span className="truncate" title={tab.hostLabel}>
-                  {tab.hostName}
-                </span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleCloseTab(tab.id)
-                  }}
-                  className="ml-1 opacity-40 hover:opacity-100 transition-opacity leading-none"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {/* AI toggle */}
-          <button
-            onClick={toggleAiPanel}
-            className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 text-xs transition-colors titlebar-no-drag"
-            style={{
-              background: aiPanelOpen ? 'var(--accent)' : 'transparent',
-              color: aiPanelOpen ? '#fff' : 'var(--text-secondary)',
-              borderLeft: '1px solid var(--border)',
-              borderTop: '2px solid transparent',
-              whiteSpace: 'nowrap'
-            }}
-            title="Toggle AI Assistant"
-          >
-            🤖 AI
-          </button>
+          <Sidebar
+            onConnect={openConnection}
+            onAddHost={() => setShowAddHost(true)}
+            onOpenBatch={openBatchTab}
+            onOpenDb={() => setShowAddDb(true)}
+          />
         </div>
 
-        {/* Tab Content + AI Panel */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Main content */}
-          <div className="flex-1 overflow-hidden relative">
+        {/* Resize Handle */}
+        <div
+          className="w-1 flex-shrink-0 cursor-col-resize"
+          style={{ background: resizing ? 'var(--accent)' : 'transparent', transition: 'background 0.15s' }}
+          onMouseDown={startResize}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--border)')}
+          onMouseLeave={(e) => { if (!resizing) e.currentTarget.style.background = 'transparent' }}
+        />
+
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Tab bar */}
+          <div
+            className="flex items-end flex-shrink-0"
+            style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)', minHeight: 34 }}
+          >
             {tabs.length === 0 && (
-              <WelcomeScreen onAddHost={() => setShowAddHost(true)} />
-            )}
-
-            {tabs.map((tab) => (
-              <div
-                key={tab.id}
-                className="absolute inset-0"
-                style={{ display: activeTabId === tab.id ? 'block' : 'none' }}
-              >
-                {tab.status === 'connecting' && (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="text-center space-y-3">
-                      <div
-                        className="w-8 h-8 rounded-full border-2 border-t-transparent mx-auto animate-spin"
-                        style={{ borderColor: 'var(--accent)' }}
-                      />
-                      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                        Connecting to {tab.hostLabel}…
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {tab.status === 'error' && (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="text-center space-y-2 max-w-md px-6">
-                      <p className="text-sm font-medium" style={{ color: 'var(--danger)' }}>
-                        Connection failed
-                      </p>
-                      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                        {tab.errorMsg}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {tab.status === 'connected' && tab.type === 'terminal' && (
-                  <TerminalPane
-                    sessionId={tab.sessionId}
-                    isActive={activeTabId === tab.id}
-                  />
-                )}
-
-                {tab.status === 'connected' && tab.type === 'sftp' && (
-                  <SftpPanel sessionId={tab.sessionId} />
-                )}
-
-                {tab.type === 'batch' && (
-                  <BatchPanel />
-                )}
-
-                {tab.type === 'db' && (() => {
-                  const connId = Number(tab.id.replace('db-', ''))
-                  const conn = dbConnections.find((d) => d.id === connId)
-                  return conn ? <DbPanel key={tab.id} conn={conn} /> : null
-                })()}
+              <div className="flex-1 flex items-center justify-center pb-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+                {t.tabs.connectHint}
               </div>
-            ))}
+            )}
+            <div className="flex items-end flex-1 overflow-x-auto">
+              {tabs.map((tab) => (
+                <div
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer flex-shrink-0 text-xs border-r transition-colors"
+                  style={{
+                    background: activeTabId === tab.id ? 'var(--bg-base)' : 'transparent',
+                    borderColor: 'var(--border)',
+                    color: activeTabId === tab.id ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    borderTop: activeTabId === tab.id ? '2px solid var(--accent)' : '2px solid transparent',
+                    maxWidth: 200
+                  }}
+                >
+                  <span className="text-xs">
+                    {tab.type === 'sftp' ? '≡' : tab.type === 'batch' ? '⚡' : tab.type === 'db' ? '🗄' : '⌨'}
+                  </span>
+                  <StatusDot status={tab.status} />
+                  <span className="truncate" title={tab.hostLabel}>{tab.hostName}</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleCloseTab(tab.id) }}
+                    className="ml-1 opacity-40 hover:opacity-100 transition-opacity leading-none"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
 
-          {/* AI Panel (right drawer) */}
-          {aiPanelOpen && (
-            <div
-              className="flex-shrink-0 flex flex-col"
-              style={{ width: 360, borderLeft: '1px solid var(--border)' }}
-            >
-              <AiPanel onClose={toggleAiPanel} />
+          {/* Tab Content + AI Panel */}
+          <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 overflow-hidden relative">
+              {tabs.length === 0 && <WelcomeScreen onAddHost={() => setShowAddHost(true)} />}
+
+              {tabs.map((tab) => (
+                <div key={tab.id} className="absolute inset-0" style={{ display: activeTabId === tab.id ? 'block' : 'none' }}>
+                  {tab.status === 'connecting' && (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center space-y-3">
+                        <div className="w-8 h-8 rounded-full border-2 border-t-transparent mx-auto animate-spin" style={{ borderColor: 'var(--accent)' }} />
+                        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          {t.conn.connecting} {tab.hostLabel}…
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {tab.status === 'error' && (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center space-y-2 max-w-md px-6">
+                        <p className="text-sm font-medium" style={{ color: 'var(--danger)' }}>{t.conn.failed}</p>
+                        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{tab.errorMsg}</p>
+                      </div>
+                    </div>
+                  )}
+                  {tab.status === 'connected' && tab.type === 'terminal' && (
+                    <TerminalPane sessionId={tab.sessionId} isActive={activeTabId === tab.id} />
+                  )}
+                  {tab.status === 'connected' && tab.type === 'sftp' && (
+                    <SftpPanel sessionId={tab.sessionId} />
+                  )}
+                  {tab.type === 'batch' && <BatchPanel />}
+                  {tab.type === 'db' && (() => {
+                    const connId = Number(tab.id.replace('db-', ''))
+                    const conn = dbConnections.find((d) => d.id === connId)
+                    return conn ? <DbPanel key={tab.id} conn={conn} /> : null
+                  })()}
+                </div>
+              ))}
             </div>
-          )}
+
+            {aiPanelOpen && (
+              <div className="flex-shrink-0 flex flex-col" style={{ width: 360, borderLeft: '1px solid var(--border)' }}>
+                <AiPanel onClose={toggleAiPanel} />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Add DB Modal */}
       {showAddDb && (
         <AddDbModal
           onClose={() => setShowAddDb(false)}
@@ -329,8 +235,6 @@ export default function App() {
           }}
         />
       )}
-
-      {/* Add Host Modal */}
       {showAddHost && (
         <AddHostModal
           groups={groups}
@@ -346,33 +250,19 @@ export default function App() {
 }
 
 function StatusDot({ status }: { status: Tab['status'] }) {
-  const color = {
-    connecting: 'var(--warning)',
-    connected: 'var(--success)',
-    disconnected: 'var(--text-muted)',
-    error: 'var(--danger)'
-  }[status]
-
-  return (
-    <div
-      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-      style={{ background: color }}
-    />
-  )
+  const color = { connecting: 'var(--warning)', connected: 'var(--success)', disconnected: 'var(--text-muted)', error: 'var(--danger)' }[status]
+  return <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: color }} />
 }
 
 function WelcomeScreen({ onAddHost }: { onAddHost: () => void }) {
+  const { t } = useI18n()
   return (
     <div className="flex items-center justify-center h-full">
       <div className="text-center space-y-6 max-w-sm">
         <div className="text-5xl opacity-20">⌘</div>
         <div>
-          <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-            NexOps
-          </h1>
-          <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-            Modern SSH workspace for developers and teams
-          </p>
+          <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>NexOps</h1>
+          <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{t.welcome.subtitle}</p>
         </div>
         <div className="space-y-2">
           <button
@@ -380,11 +270,9 @@ function WelcomeScreen({ onAddHost }: { onAddHost: () => void }) {
             className="px-4 py-2 rounded-lg text-sm font-medium w-full"
             style={{ background: 'var(--accent)', color: '#fff' }}
           >
-            Add your first host
+            {t.welcome.addFirstHost}
           </button>
-          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            Or double-click any host in the sidebar to connect
-          </p>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{t.welcome.hint}</p>
         </div>
       </div>
     </div>

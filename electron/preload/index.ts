@@ -155,6 +155,19 @@ const api = {
     openFile: (): Promise<string | null> => ipcRenderer.invoke('dialog:open-file')
   },
 
+  // ─── Window ──────────────────────────────────────────────────────────────
+  window: {
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    maximize: () => ipcRenderer.invoke('window:maximize'),
+    close: () => ipcRenderer.invoke('window:close'),
+    isMaximized: (): Promise<boolean> => ipcRenderer.invoke('window:is-maximized'),
+    onMaximized: (cb: (maximized: boolean) => void) => {
+      const h = (_: Electron.IpcRendererEvent, v: boolean) => cb(v)
+      ipcRenderer.on('window:maximized', h)
+      return () => ipcRenderer.removeListener('window:maximized', h)
+    }
+  },
+
   // ─── AI ──────────────────────────────────────────────────────────────────
   ai: {
     chat: (chatId: string, messages: AiMessage[], settings: AiSettings): Promise<IpcResult<boolean>> =>

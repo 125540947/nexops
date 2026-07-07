@@ -431,4 +431,16 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null) {
     })
     return result.canceled ? null : result.filePaths[0]
   })
+
+  // ─── Window controls ──────────────────────────────────────────────────────
+
+  ipcMain.handle('window:minimize', () => { getWindow()?.minimize() })
+  ipcMain.handle('window:maximize', () => {
+    const win = getWindow()
+    if (!win) return
+    win.isMaximized() ? win.unmaximize() : win.maximize()
+  })
+  ipcMain.handle('window:close', () => { getWindow()?.close() })
+  ipcMain.handle('window:is-maximized', () => getWindow()?.isMaximized() ?? false)
+
 }
